@@ -7,7 +7,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/martini-contrib/render"
 	"io"
-	"log"
 	"mussh/resources/command"
 	"mussh/resources/server"
 	"net/http"
@@ -58,115 +57,113 @@ func handleRequest(session *gorethink.Session, exe Execution, ws *websocket.Conn
 	cmd := getCommand(session, exe.CommandId)
 	config := getConfig(exe)
 
-	resultChan := make(chan SshResult)
-	doneChan := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ws.ReadMessage()
+	}()
 
-	var wg sync.WaitGroup
-	for _, svr := range servers {
-		wg.Add(1)
-		go func(svr server.Server) {
-			defer wg.Done()
-
-			sshSession, err := createSession(config, svr)
-			if err != nil {
-				resultChan <- SshResult{svr, err.Error(), false}
-				return
-			}
-			defer sshSession.Close()
-
-			err = runCommand(svr, cmd, sshSession, resultChan, doneChan)
-			if err != nil {
-				resultChan <- SshResult{svr, err.Error(), false}
-			}
-		}(svr)
+	sshResultChans := make([]<-chan SshResult, len(servers))
+	for i, svr := range servers {
+		sshResultChans[i] = runCommand(svr, cmd, config, done)
 	}
 
-	go func() {
-		defer close(doneChan)
-		ws.ReadMessage()
-		doneChan <- struct{}{}
-	}()
-
-	go func() {
-		wg.Wait()
-		close(resultChan)
-	}()
-
-	for result := range resultChan {
-		err := ws.WriteJSON(result)
+	output := merge(sshResultChans...)
+	for sshResult := range output {
+		err := ws.WriteJSON(sshResult)
 		if err != nil {
 			return
 		}
 	}
 }
 
-func runCommand(svr server.Server, cmd command.Command, sshSession *ssh.Session,
-	resultChan chan<- SshResult, doneChan <-chan struct{}) error {
+func runCommand(svr server.Server, cmd command.Command, config *ssh.ClientConfig, done <-chan struct{}) <-chan SshResult {
+	out := make(chan SshResult)
 
+	go func() {
+		client, err := createClient(config, svr)
+		if err != nil {
+			out <- SshResult{svr, err.Error(), false}
+			close(out)
+			return
+		}
+		defer client.Close()
+
+		session, err := client.NewSession()
+		if err != nil {
+			out <- SshResult{svr, "Failed to create SSH session for server: " + svr.Addr + "\n\n" + err.Error(), false}
+			close(out)
+			return
+		}
+		defer session.Close()
+
+		stdoutPipe, _ := session.StdoutPipe()
+		stderrPipe, _ := session.StderrPipe()
+
+		go handleOutput(out, done, stdoutPipe, stderrPipe, svr)
+
+		run := make(chan struct{})
+		go func() {
+			defer close(run)
+			session.Run(buildCommand(cmd, svr))
+		}()
+		select {
+		case <-run:
+		case <-done:
+		}
+	}()
+
+	return out
+}
+
+func handleOutput(out chan<- SshResult, done <-chan struct{}, stdoutPipe io.Reader, stderrPipe io.Reader, svr server.Server) {
+	defer close(out)
+
+	var wg sync.WaitGroup
+	pipe := make(chan SshResult)
+	wg.Add(2)
+	go func() {
+		defer close(pipe)
+		wg.Wait()
+	}()
+
+	go readFromPipe(&wg, pipe, stdoutPipe, false, svr)
+	go readFromPipe(&wg, pipe, stderrPipe, true, svr)
+
+	for {
+		select {
+		case sshResult, ok := <-pipe:
+			if !ok {
+				return
+			}
+			out <- sshResult
+		case <-done:
+			return
+		}
+	}
+}
+
+func readFromPipe(wg *sync.WaitGroup, out chan<- SshResult, pipe io.Reader, isErr bool, svr server.Server) {
+	defer wg.Done()
+	buffer := make([]byte, 4096)
+	for {
+		n, err := pipe.Read(buffer)
+		if err != nil {
+			return
+		}
+		out <- SshResult{svr, string(buffer[:n]), !isErr}
+	}
+}
+
+func buildCommand(cmd command.Command, svr server.Server) string {
 	script := cmd.Script
 	if svr.BaseDir != "" {
 		script = "cd " + svr.BaseDir + " && " + script
 	}
-
-	stdoutPipe, _ := sshSession.StdoutPipe()
-	stderrPipe, _ := sshSession.StderrPipe()
-	errorChan := make(chan struct{})
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		readFromPipe(io.MultiReader(stdoutPipe, stderrPipe), resultChan, doneChan, errorChan, svr)
-	}()
-
-	err := sshSession.Run(script)
-	if err != nil {
-		errorChan <- struct{}{}
-		wg.Wait()
-	}
-	return err
+	return script
 }
 
-func readFromPipe(pipeReader io.Reader, resultChan chan<- SshResult, doneChan <-chan struct{},
-	errorChan <-chan struct{}, svr server.Server) {
-
-	readChan := make(chan SshResult)
-	go func() {
-		defer close(readChan)
-		buffer := make([]byte, 4096)
-		for {
-			n, err := pipeReader.Read(buffer)
-			if err != nil {
-				return
-			}
-			select {
-			case <-doneChan:
-				return
-			case <-errorChan:
-				return
-			case readChan <- SshResult{svr, string(buffer[:n]), true}:
-				log.Println("SENT DATA : ", SshResult{svr, string(buffer[:n]), true})
-			}
-		}
-	}()
-
-	for {
-		select {
-		case result, ok := (<-readChan):
-			if ok {
-				log.Println("Result read from pipe: ", result)
-				resultChan <- result
-			} else {
-				return
-			}
-		case <-doneChan:
-			return
-		case <-errorChan:
-			return
-		}
-	}
-}
-
-func createSession(config *ssh.ClientConfig, svr server.Server) (*ssh.Session, error) {
+func createClient(config *ssh.ClientConfig, svr server.Server) (*ssh.Client, error) {
 	var client *ssh.Client
 	if svr.Tunnel != "" {
 		tunnelClient, err := ssh.Dial("tcp", svr.Tunnel+":"+strconv.Itoa(svr.Port), config)
@@ -191,12 +188,29 @@ func createSession(config *ssh.ClientConfig, svr server.Server) (*ssh.Session, e
 		client = client2
 	}
 
-	session, err := client.NewSession()
-	if err != nil {
-		return nil, errors.New("Failed to create SSH session for server: " + svr.Addr + "\n\n" + err.Error())
+	return client, nil
+}
+
+func merge(chans ...<-chan SshResult) <-chan SshResult {
+	var wg sync.WaitGroup
+	out := make(chan SshResult)
+	wg.Add(len(chans))
+
+	for _, c := range chans {
+		go func(c <-chan SshResult) {
+			for n := range c {
+				out <- n
+			}
+			wg.Done()
+		}(c)
 	}
 
-	return session, nil
+	go func() {
+		defer close(out)
+		wg.Wait()
+	}()
+
+	return out
 }
 
 func getServers(session *gorethink.Session, groupId string) []server.Server {
