@@ -11,9 +11,9 @@ const TABLE string = "command"
 
 type Command struct {
 	Id     string `gorethink:"id,omitempty" json:"id" form:"id"`
-	Name   string `json:"name" form:"name"`
+	Name   string `json:"name" form:"name" binding:"required"`
 	Note   string `json:"note" form:"note"`
-	Script string `json:"script" form:"script"`
+	Script string `json:"script" form:"script" binding:"required"`
 }
 
 func Get(session *gorethink.Session, r render.Render) {

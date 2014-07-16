@@ -16,10 +16,10 @@ import (
 
 type Execution struct {
 	Id        string      `gorethink:"id,omitempty" json:"id"`
-	Username  string      `json:"username"`
-	Password  string      `json:"password"`
-	GroupId   string      `json:"groupId"`
-	CommandId string      `json:"commandId"`
+	Username  string      `json:"username" binding:"required"`
+	Password  string      `json:"password" binding:"required"`
+	GroupId   string      `json:"groupId" binding:"required"`
+	CommandId string      `json:"commandId" binding:"required"`
 	Results   []SshResult `json:"results"`
 }
 

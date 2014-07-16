@@ -11,12 +11,12 @@ const TABLE string = "server"
 
 type Server struct {
 	Id       string   `gorethink:"id,omitempty" json:"id" form:"id"`
-	Name     string   `json:"name" form:"name"`
-	Addr     string   `json:"addr" form:"addr"`
-	Port     int      `json:"port" form:"port"`
+	Name     string   `json:"name" form:"name" binding:"required"`
+	Addr     string   `json:"addr" form:"addr" binding:"required"`
+	Port     int      `json:"port" form:"port" binding:"required"`
 	Tunnel   string   `json:"tunnel" form:"tunnel"`
 	BaseDir  string   `json:"basedir" form:"basedir"`
-	GroupIds []string `json:"groupIds" form:"groupIds"`
+	GroupIds []string `json:"groupIds" form:"groupIds" binding:"required"`
 }
 
 func Get(session *gorethink.Session, r render.Render) {

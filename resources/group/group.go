@@ -11,7 +11,7 @@ const TABLE string = "group"
 
 type Group struct {
 	Id   string `gorethink:"id,omitempty" json:"id"`
-	Name string `json:"name" form:"name"`
+	Name string `json:"name" form:"name" binding:"required"`
 }
 
 type GroupServer struct {
