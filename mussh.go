@@ -22,6 +22,8 @@ func main() {
 		res.Header().Add("Access-Control-Allow-Origin", "*")
 		res.Header().Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	})
+	m.Use(martini.Static("public"))
+
 	m.Map(session)
 	m.Action(getRouter())
 
