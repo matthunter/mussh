@@ -2,7 +2,6 @@ package execution
 
 import (
 	"code.google.com/p/go.crypto/ssh"
-	"log"
 	"mussh/resources/command"
 	"mussh/resources/server"
 	"strconv"
@@ -54,7 +53,6 @@ func runCommand(svr server.Server, cmd command.Command, config *ssh.ClientConfig
 
 func (pipe *pipeWriter) Write(p []byte) (int, error) {
 	pipe.out <- SshResult{pipe.svr, string(p[:]), !pipe.isErr}
-	log.Println("RESULT: ", string(p[:]))
 	return len(p), nil
 }
 
