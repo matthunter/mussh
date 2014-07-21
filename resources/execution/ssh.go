@@ -2,21 +2,27 @@ package execution
 
 import (
 	"code.google.com/p/go.crypto/ssh"
-	"io"
+	"log"
 	"mussh/resources/command"
 	"mussh/resources/server"
 	"strconv"
-	"sync"
 )
+
+type pipeWriter struct {
+	isErr bool
+	svr   server.Server
+	out   chan<- SshResult
+}
 
 func runCommand(svr server.Server, cmd command.Command, config *ssh.ClientConfig, done <-chan struct{}) <-chan SshResult {
 	out := make(chan SshResult)
 
 	go func() {
+		defer close(out)
+
 		client, err := createClient(config, svr)
 		if err != nil {
 			out <- SshResult{svr, err.Error(), false}
-			close(out)
 			return
 		}
 		defer client.Close()
@@ -25,15 +31,12 @@ func runCommand(svr server.Server, cmd command.Command, config *ssh.ClientConfig
 		if err != nil {
 			sshErr := sshError{"Failed to create SSH session for server: " + svr.Addr, err}
 			out <- SshResult{svr, sshErr.Error(), false}
-			close(out)
 			return
 		}
 		defer session.Close()
 
-		stdoutPipe, _ := session.StdoutPipe()
-		stderrPipe, _ := session.StderrPipe()
-
-		go handleOutput(out, done, stdoutPipe, stderrPipe, svr)
+		session.Stdout = &pipeWriter{false, svr, out}
+		session.Stderr = &pipeWriter{true, svr, out}
 
 		run := make(chan struct{})
 		go func() {
@@ -49,43 +52,10 @@ func runCommand(svr server.Server, cmd command.Command, config *ssh.ClientConfig
 	return out
 }
 
-func handleOutput(out chan<- SshResult, done <-chan struct{}, stdoutPipe io.Reader, stderrPipe io.Reader, svr server.Server) {
-	defer close(out)
-
-	var wg sync.WaitGroup
-	pipe := make(chan SshResult)
-	wg.Add(2)
-	go func() {
-		defer close(pipe)
-		wg.Wait()
-	}()
-
-	go readFromPipe(&wg, pipe, stdoutPipe, false, svr)
-	go readFromPipe(&wg, pipe, stderrPipe, true, svr)
-
-	for {
-		select {
-		case sshResult, ok := <-pipe:
-			if !ok {
-				return
-			}
-			out <- sshResult
-		case <-done:
-			return
-		}
-	}
-}
-
-func readFromPipe(wg *sync.WaitGroup, out chan<- SshResult, pipe io.Reader, isErr bool, svr server.Server) {
-	defer wg.Done()
-	buffer := make([]byte, 4096)
-	for {
-		n, err := pipe.Read(buffer)
-		if err != nil {
-			return
-		}
-		out <- SshResult{svr, string(buffer[:n]), !isErr}
-	}
+func (pipe *pipeWriter) Write(p []byte) (int, error) {
+	pipe.out <- SshResult{pipe.svr, string(p[:]), !pipe.isErr}
+	log.Println("RESULT: ", string(p[:]))
+	return len(p), nil
 }
 
 func buildCommand(cmd command.Command, svr server.Server) string {
