@@ -7,6 +7,7 @@ Multi-SSH is the open source server capable of executing commands via ssh on a g
 * Written in Go
 * Rest API to get/post/delete servers, groups, and commands
 * Websocket to execute commands.  Outputs are sent via the socket as they are available (tail -f works)
+* Can specify a tunnel address and base directory for each server
 * RethinkDB database 
 
 
