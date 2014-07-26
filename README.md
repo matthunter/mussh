@@ -12,9 +12,9 @@ Multi-SSH is the open source server capable of executing commands via ssh on a g
 
 
 ## Installation
-Download and run RethinkDB
-Setup $GoPath
-Run go get
-Run go install
+* Download and run RethinkDB
+* Setup GOPATH:  https://code.google.com/p/go-wiki/wiki/GOPATH
+* Run go get
+* Run go install
 
 Client: https://github.com/matthunter/mussh-client
