@@ -28,22 +28,22 @@ type GroupServer struct {
 }
 
 func GetWithServer(session *gorethink.Session, r render.Render) {
-	rows, _ := gorethink.Table(TABLE).Map(func(groupTerm gorethink.RqlTerm) gorethink.RqlTerm {
+	rows, _ := gorethink.Table(TABLE).Map(func(groupTerm gorethink.Term) gorethink.Term {
 		return groupTerm.Merge(map[string]interface{}{"servers": gorethink.Table("server").Filter(
-			func(serverTerm gorethink.RqlTerm) gorethink.RqlTerm {
+			func(serverTerm gorethink.Term) gorethink.Term {
 				return serverTerm.Field("GroupIds").Contains(groupTerm.Field("id"))
 			}).Without("GroupIds").CoerceTo("array")})
 	}).Run(session)
 
 	var groupServer []GroupServer
-	rows.ScanAll(&groupServer)
+	rows.All(&groupServer)
 	r.JSON(http.StatusOK, groupServer)
 }
 
 func Get(session *gorethink.Session, r render.Render) {
 	rows, _ := gorethink.Table(TABLE).Run(session)
 	var groups []Group
-	rows.ScanAll(&groups)
+	rows.All(&groups)
 	r.JSON(http.StatusOK, groups)
 }
 

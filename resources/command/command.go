@@ -19,7 +19,7 @@ type Command struct {
 func Get(session *gorethink.Session, r render.Render) {
 	rows, _ := gorethink.Table(TABLE).Run(session)
 	var commands []Command
-	rows.ScanAll(&commands)
+	rows.All(&commands)
 	r.JSON(http.StatusOK, commands)
 }
 

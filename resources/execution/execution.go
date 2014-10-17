@@ -98,18 +98,18 @@ func merge(chans ...<-chan SshResult) <-chan SshResult {
 
 func getServers(session *gorethink.Session, groupId string) []server.Server {
 	rows, _ := gorethink.Table("server").Filter(
-		func(serverTerm gorethink.RqlTerm) gorethink.RqlTerm {
+		func(serverTerm gorethink.Term) gorethink.Term {
 			return serverTerm.Field("GroupIds").Contains(groupId)
 		}).Run(session)
 	var servers []server.Server
-	rows.ScanAll(&servers)
+	rows.All(&servers)
 	return servers
 }
 
 func getCommand(session *gorethink.Session, commandId string) command.Command {
-	row, _ := gorethink.Table("command").Get(commandId).RunRow(session)
+	row, _ := gorethink.Table("command").Get(commandId).Run(session)
 	var command command.Command
-	row.Scan(&command)
+	row.One(&command)
 	return command
 }
 

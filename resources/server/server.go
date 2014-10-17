@@ -22,7 +22,7 @@ type Server struct {
 func Get(session *gorethink.Session, r render.Render) {
 	rows, _ := gorethink.Table(TABLE).Run(session)
 	var servers []Server
-	rows.ScanAll(&servers)
+	rows.All(&servers)
 	r.JSON(http.StatusOK, servers)
 }
 

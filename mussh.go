@@ -11,6 +11,7 @@ import (
 	"mussh/resources/group"
 	"mussh/resources/server"
 	"net/http"
+	"time"
 )
 
 func main() {
@@ -36,11 +37,14 @@ func main() {
 
 func connectToDb() *gorethink.Session {
 	session, err := gorethink.Connect(gorethink.ConnectOpts{
-		Address:  "localhost:28015",
-		Database: "mussh",
+		Address:     "localhost:28015",
+		Database:    "mussh",
+		MaxIdle:     10,
+		IdleTimeout: time.Second * 10,
 	})
+
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
 	}
 
 	return session
